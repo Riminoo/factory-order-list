@@ -1,88 +1,71 @@
 import streamlit as st
-import base64
 import pandas as pd
-import json
-from openai import OpenAI
 import io
+import time
 
-# ================= 配置区域 =================
-api_key = st.secrets.get("OPENAI_API_KEY", "")
-client = OpenAI(api_key=api_key)
+# ================= 页面配置 =================
+st.set_page_config(page_title="工厂智能报货清单（演示版）", layout="wide")
+st.title("🏭 工厂智能报货清单生成器 (演示模式)")
+st.markdown("⚠️ **当前为免Key演示模式**：AI 功能仅模拟演示，不消耗额度。")
 
-# ================= 核心函数 =================
-def encode_image(image_file):
-    return base64.b64encode(image_file.getvalue()).decode('utf-8')
-
-def analyze_image_with_gpt4o(base64_image):
-    prompt_text = """
-    你是一个工厂订单处理专家。请分析这张图片（可能是手写清单、白板照片或打印件）。
-    请提取所有的：产品名称、规格/型号、数量、单位、颜色/备注。
-    请严格按照以下JSON格式返回数据，不要包含Markdown标记或其他文字：
-    [
-        {"产品名称": "示例螺丝", "规格": "M4x10", "数量": 1000, "单位": "个", "备注": "不锈钢"},
-        ...
+# ================= 模拟数据函数 =================
+def get_fake_ai_result():
+    """模拟AI返回的数据"""
+    return [
+        {"产品名称": "高强度螺栓", "规格": "M12*50", "数量": 500, "单位": "套", "备注": "发黑处理"},
+        {"产品名称": "平垫圈", "规格": "M12", "数量": 1000, "单位": "个", "备注": "镀锌"},
+        {"产品名称": "六角螺母", "规格": "M12", "数量": 500, "单位": "个", "备注": ""},
+        {"产品名称": "轴承", "规格": "6204-2RS", "数量": 20, "单位": "个", "备注": "哈尔滨轴承"},
+        {"产品名称": "密封圈", "规格": "ID:50 OD:70", "数量": 10, "单位": "条", "备注": "氟胶"}
     ]
-    如果某个字段无法识别，请留空字符串。如果是无关内容请忽略。
-    """
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt_text},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
-                    ],
-                }
-            ],
-            max_tokens=4096,
-            temperature=0.1,
-            response_format={ "type": "json_object" }
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return str(e)
 
 # ================= 页面布局 =================
-st.set_page_config(page_title="工厂智能报货清单生成器", layout="wide")
-st.title("🏭 工厂智能报货清单生成器")
-
-if not api_key:
-    st.error("⚠️ 未检测到 API Key，请在 Streamlit Secrets 中配置 OPENAI_API_KEY")
-
 col1, col2 = st.columns([1, 2])
 
 with col1:
     st.subheader("1. 上传图片")
-    uploaded_file = st.file_uploader("选择图片...", type=['jpg', 'jpeg', 'png'])
-    if uploaded_file:
+    uploaded_file = st.file_uploader("随便传一张图测试...", type=['jpg', 'jpeg', 'png'])
+    
+    if uploaded_file is not None:
         st.image(uploaded_file, caption='已上传图片', use_column_width=True)
 
 with col2:
     st.subheader("2. 识别结果")
-    if uploaded_file and st.button("开始识别", type="primary"):
-        if not api_key:
-            st.warning("请先配置 API Key 才能运行")
-        else:
-            with st.spinner('AI 正在识别...'):
-                base64_image = encode_image(uploaded_file)
-                json_result = analyze_image_with_gpt4o(base64_image)
-                try:
-                    data_obj = json.loads(json_result)
-                    if isinstance(data_obj, dict):
-                        # 兼容不同返回格式
-                        data_list = data_obj.get("items") or data_obj.get("data") or list(data_obj.values())[0]
-                    else:
-                        data_list = data_obj
-                    st.session_state['df_result'] = pd.DataFrame(data_list)
-                    st.success("识别成功！")
-                except:
-                    st.error("识别结果解析失败，请重试")
+    
+    if uploaded_file is not None:
+        if st.button("🚀 开始模拟识别", type="primary"):
+            with st.spinner('正在模拟 AI 分析图片内容...'):
+                # 假装思考 2 秒钟
+                time.sleep(2)
+                
+                # 获取模拟数据
+                data_list = get_fake_ai_result()
+                
+                # 存入 Session 状态
+                st.session_state['df_result'] = pd.DataFrame(data_list)
+                st.success("识别成功！(这是模拟数据)")
 
+    # 显示可编辑表格
     if 'df_result' in st.session_state:
-        edited_df = st.data_editor(st.session_state['df_result'], num_rows="dynamic", use_container_width=True)
+        st.info("👇 你可以在下面的表格里直接修改数据：")
+        
+        # 可编辑表格
+        edited_df = st.data_editor(
+            st.session_state['df_result'],
+            num_rows="dynamic",
+            use_container_width=True
+        )
+
+        st.subheader("3. 导出文件")
+        
+        # 生成 Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             edited_df.to_excel(writer, index=False, sheet_name='报货清单')
-        st.download_button("📥 下载 Excel", data=output.getvalue(), file_name="order_list.xlsx")
+        
+        st.download_button(
+            label="📥 下载 Excel 报货单",
+            data=output.getvalue(),
+            file_name="测试报货单.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
